@@ -1,20 +1,26 @@
-# Используем официальный образ Node.js
-FROM node:18-alpine
+# Используем официальный образ Python
+FROM python:3.10-slim
+
+# Устанавливаем зависимости
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Создаем рабочую директорию
 WORKDIR /app
 
-# Копируем файлы зависимостей
-COPY package*.json ./
+# Копируем зависимости
+COPY requirements.txt .
 
-# Устанавливаем зависимости
-RUN npm install --production
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Копируем исходный код
 COPY . .
 
-# Открываем порт сервиса
-EXPOSE 3000
+# Открываем порт
+EXPOSE 5000
 
 # Запускаем приложение
-CMD ["node", "po-token-service.js"]
+CMD ["python", "app.py"]
