@@ -1,14 +1,9 @@
-# Используем мульти-стадийную сборку
-FROM node:18-slim AS nodejs
-RUN apt-get update && apt-get install -y python3 python3-pip
-WORKDIR /app
-COPY package.json .
-RUN npm install puppeteer
+FROM node:18-slim AS node-base
 
-FROM python:3.10-slim
-WORKDIR /app
+# Установка youtube-po-token-generator
+RUN npm install -g youtube-po-token-generator
 
-# Установка системных зависимостей для Puppeteer и FFmpeg
+# Установка системных зависимостей для Puppeteer
 RUN apt-get update && apt-get install -y \
     gconf-service \
     libasound2 \
@@ -48,21 +43,37 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     xdg-utils \
     wget \
+    --no-install-recommends
+
+FROM python:3.10-slim
+
+# Копируем Node.js окружение с youtube-po-token-generator
+COPY --from=node-base /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node-base /usr/local/bin /usr/local/bin
+COPY --from=node-base /usr/lib /usr/lib
+COPY --from=node-base /lib /lib
+
+# Установка системных зависимостей для Python и FFmpeg
+RUN apt-get update && apt-get install -y \
+    git \
+    gcc \
+    g++ \
     ffmpeg \
     --no-install-recommends
 
-# Копируем Node.js окружение
-COPY --from=nodejs /app/node_modules /app/node_modules
-COPY --from=nodejs /usr/bin /usr/bin
-COPY --from=nodejs /usr/lib /usr/lib
+WORKDIR /app
 
-# Копируем Python зависимости и код
+# Копируем Python зависимости
 COPY requirements.txt .
+
+# Установка Python-зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Копируем основной код
 COPY bot.py .
 
-# Настраиваем окружение для Puppeteer
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Настройка окружения
 ENV PYTHONUNBUFFERED=1
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 CMD ["python", "bot.py"]

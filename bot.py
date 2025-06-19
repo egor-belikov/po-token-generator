@@ -1,8 +1,9 @@
 import re
-import subprocess
-import logging
 import os
-import asyncio
+import logging
+import tempfile
+import subprocess
+import json
 from pytubefix import YouTube
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -21,53 +22,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Генерация PO-токена с помощью Node.js
+# Генерация PO_TOKEN с помощью youtube-po-token-generator
 def generate_po_token():
-    node_script = """
-    const puppeteer = require('puppeteer');
-    (async () => {
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--single-process'
-            ]
-        });
-        const page = await browser.newPage();
-        await page.goto('https://www.youtube.com', { waitUntil: 'networkidle2', timeout: 60000 });
-        const poToken = await page.evaluate(() => localStorage.getItem('PO_TOKEN'));
-        console.log(poToken);
-        await browser.close();
-    })();
-    """
-    
-    with open('po_token.js', 'w') as f:
-        f.write(node_script)
-    
     try:
+        # Запускаем команду youtube-po-token-generator
         result = subprocess.run(
-            ['node', 'po_token.js'],
+            ["youtube-po-token-generator"],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=60
         )
-        po_token = result.stdout.strip()
+        if result.returncode != 0:
+            logger.error(f"Command failed: {result.stderr}")
+            return None
+        
+        # Парсим JSON вывод
+        token_data = json.loads(result.stdout)
+        po_token = token_data.get('poToken')
         if po_token:
-            logger.info(f"PO_TOKEN generated: {po_token}")
+            logger.info(f"Generated PO_TOKEN: {po_token[:10]}...")
             return po_token
         else:
-            logger.error("PO_TOKEN generation failed")
+            logger.error("PO_TOKEN not found in output")
             return None
     except Exception as e:
-        logger.error(f"PO_TOKEN error: {str(e)}")
+        logger.error(f"Error generating PO_TOKEN: {str(e)}")
         return None
 
 # Инициализация PO_TOKEN
 PO_TOKEN = generate_po_token()
 if PO_TOKEN:
     YouTube._po_token = PO_TOKEN
+else:
+    logger.error("Failed to generate PO_TOKEN. Continuing without it. Some videos might not work.")
 
 # Обработчик ссылок YouTube
 def normalize_youtube_url(url: str) -> str:
@@ -107,7 +94,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
-        yt = YouTube(normalized_url, use_po_token=True)
+        yt = YouTube(normalized_url)
         title = yt.title
         
         keyboard = [
@@ -141,51 +128,52 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
         
         await query.edit_message_text(f"⏳ Скачиваю {format_type}...")
         
-        if format_type == 'video':
-            stream = yt.streams.filter(
-                progressive=True,
-                file_extension='mp4'
-            ).get_highest_resolution()
-            filename = f"{yt.video_id}.mp4"
-        else:
-            stream = yt.streams.filter(
-                only_audio=True
-            ).get_audio_only()
-            filename = f"{yt.video_id}.mp3"
+        # Создаем временную директорию
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            if format_type == 'video':
+                stream = yt.streams.filter(
+                    progressive=True,
+                    file_extension='mp4'
+                ).get_highest_resolution()
+                filename = f"{yt.video_id}.mp4"
+            else:
+                stream = yt.streams.filter(
+                    only_audio=True
+                ).get_audio_only()
+                filename = f"{yt.video_id}.mp3"
+            
+            filepath = os.path.join(tmp_dir, filename)
+            stream.download(output_path=tmp_dir, filename=filename)
+            filesize = os.path.getsize(filepath) / (1024 * 1024)  # Размер в MB
+            
+            if filesize > 50:
+                await query.edit_message_text("⚠️ Файл слишком большой (>50MB)")
+                return
+            
+            await query.edit_message_text("📤 Отправляю файл...")
+            
+            if format_type == 'video':
+                await context.bot.send_video(
+                    chat_id=query.message.chat_id,
+                    video=open(filepath, 'rb'),
+                    caption=f"🎬 {title}",
+                    supports_streaming=True,
+                    read_timeout=300,
+                    write_timeout=300,
+                    connect_timeout=300
+                )
+            else:
+                await context.bot.send_audio(
+                    chat_id=query.message.chat_id,
+                    audio=open(filepath, 'rb'),
+                    caption=f"🎵 {title}",
+                    title=title[:64],
+                    performer=yt.author[:64],
+                    read_timeout=300,
+                    write_timeout=300,
+                    connect_timeout=300
+                )
         
-        filepath = stream.download(filename=filename)
-        filesize = os.path.getsize(filepath) / (1024 * 1024)  # Размер в MB
-        
-        if filesize > 50:
-            await query.edit_message_text("⚠️ Файл слишком большой (>50MB)")
-            os.remove(filepath)
-            return
-        
-        await query.edit_message_text("📤 Отправляю файл...")
-        
-        if format_type == 'video':
-            await context.bot.send_video(
-                chat_id=query.message.chat_id,
-                video=open(filepath, 'rb'),
-                caption=f"🎬 {title}",
-                supports_streaming=True,
-                read_timeout=300,
-                write_timeout=300,
-                connect_timeout=300
-            )
-        else:
-            await context.bot.send_audio(
-                chat_id=query.message.chat_id,
-                audio=open(filepath, 'rb'),
-                caption=f"🎵 {title}",
-                title=title[:64],
-                performer=yt.author[:64],
-                read_timeout=300,
-                write_timeout=300,
-                connect_timeout=300
-            )
-        
-        os.remove(filepath)
         await query.delete_message()
         
     except Exception as e:
@@ -196,7 +184,7 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not set!")
+        logger.error("TELEGRAM_BOT_TOKEN не установлен!")
         return
     
     application = Application.builder().token(TOKEN).build()
@@ -206,7 +194,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_format_selection, pattern=r"^(video|audio)\|"))
     
-    logger.info("Bot started")
+    logger.info("Бот запущен")
     application.run_polling()
 
 if __name__ == '__main__':
