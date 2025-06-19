@@ -30,6 +30,21 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     --no-install-recommends
 
+# Установка youtube-po-token-generator
+RUN npm install -g youtube-po-token-generator
+
+# Клонирование и настройка генератора токенов
+RUN git clone https://github.com/YunzheZJU/youtube-po-token-generator.git
+WORKDIR /youtube-po-token-generator
+RUN npm install
+
+# Установка зависимости для примера
+RUN npm install commander
+
+# Создаем симлинк для быстрого доступа к скрипту
+RUN ln -s /youtube-po-token-generator/examples/one-shot.js /usr/local/bin/youtube-po-token-generator
+
+# Возвращаемся в рабочую директорию
 WORKDIR /app
 
 # Копируем Python зависимости
