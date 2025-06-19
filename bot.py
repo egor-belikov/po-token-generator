@@ -2,9 +2,8 @@ import re
 import os
 import logging
 import tempfile
-import subprocess
-import json
 from pytubefix import YouTube
+from youtube_po_token_generator import generate_po_token
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,39 +21,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Генерация PO_TOKEN с помощью youtube-po-token-generator
-def generate_po_token():
-    try:
-        # Запускаем команду youtube-po-token-generator
-        result = subprocess.run(
-            ["youtube-po-token-generator"],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-        if result.returncode != 0:
-            logger.error(f"Command failed: {result.stderr}")
-            return None
-        
-        # Парсим JSON вывод
-        token_data = json.loads(result.stdout)
-        po_token = token_data.get('poToken')
-        if po_token:
-            logger.info(f"Generated PO_TOKEN: {po_token[:10]}...")
-            return po_token
-        else:
-            logger.error("PO_TOKEN not found in output")
-            return None
-    except Exception as e:
-        logger.error(f"Error generating PO_TOKEN: {str(e)}")
-        return None
-
 # Инициализация PO_TOKEN
-PO_TOKEN = generate_po_token()
-if PO_TOKEN:
+try:
+    PO_TOKEN = generate_po_token()
+    logger.info(f"Successfully generated PO_TOKEN: {PO_TOKEN[:10]}...")
     YouTube._po_token = PO_TOKEN
-else:
-    logger.error("Failed to generate PO_TOKEN. Continuing without it. Some videos might not work.")
+except Exception as e:
+    logger.error(f"PO_TOKEN generation failed: {str(e)}")
+    PO_TOKEN = None
 
 # Обработчик ссылок YouTube
 def normalize_youtube_url(url: str) -> str:
