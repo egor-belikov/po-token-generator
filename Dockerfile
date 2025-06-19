@@ -64,8 +64,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     ffmpeg \
     curl \
-    ca-certificates \  # Установка корневых сертификатов
-    # Зависимости для headless Chrome
+    ca-certificates \  
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
