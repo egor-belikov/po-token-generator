@@ -1,9 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pytubefix import YouTube
-from pytubefix.extract import video_id
+from pytubefix.exceptions import VideoUnavailable
 import uvicorn
+import logging
 
 app = FastAPI()
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @app.post("/generate-po-token")
 async def generate_po_token(data: dict):
@@ -12,29 +17,60 @@ async def generate_po_token(data: dict):
         if not video_url:
             raise HTTPException(status_code=400, detail="video_url required")
         
-        # Извлекаем ID видео
-        vid = video_id(video_url)
-        if not vid:
-            raise ValueError("Invalid YouTube URL")
+        logger.info(f"Processing video URL: {video_url}")
         
         # Создаем объект YouTube
-        yt = YouTube(f"https://www.youtube.com/watch?v={vid}")
+        yt = YouTube(video_url)
         
-        # Инициируем запрос данных видео
-        yt.bypass_age_gate()
+        # Получаем информацию о видео
+        try:
+            # Этот вызов автоматически обрабатывает age gate
+            stream = yt.streams.first()
+        except VideoUnavailable:
+            # Для видео с возрастными ограничениями
+            yt.bypass_age_gate()
         
-        # Извлекаем PoToken из ответа
-        player_response = yt._vid_info.get("playerResponse", {})
+        # Извлекаем PoToken
+        player_response = yt.vid_info.get("playerResponse", {})
         playability_status = player_response.get("playabilityStatus", {})
         po_token = playability_status.get("poToken", "")
         
         if not po_token:
+            # Альтернативный способ получения PoToken
+            po_token = get_po_token_from_html(yt.watch_html)
+        
+        if not po_token:
             raise Exception("PoToken not found in response")
         
+        logger.info(f"Generated PoToken for video: {yt.video_id}")
         return {"po_token": po_token}
     
     except Exception as e:
+        logger.error(f"Error generating PoToken: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+def get_po_token_from_html(html: str) -> str:
+    """Альтернативный способ извлечения PoToken из HTML"""
+    import re
+    import json
+    
+    # Поиск player_response в HTML
+    patterns = [
+        r'var ytInitialPlayerResponse\s*=\s*({.*?});',
+        r'ytInitialPlayerResponse\s*=\s*({.*?});',
+        r'ytInitialPlayerResponse\s*=\s*({.*?})<'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, html)
+        if match:
+            try:
+                player_response = json.loads(match.group(1))
+                return player_response.get("playabilityStatus", {}).get("poToken", "")
+            except json.JSONDecodeError:
+                continue
+    
+    return ""
 
 @app.get("/health")
 def health_check():
