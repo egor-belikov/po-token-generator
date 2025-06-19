@@ -107,7 +107,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
-        yt = YouTube(normalized_url)
+        yt = YouTube(normalized_url, use_po_token=True)
         title = yt.title
         
         keyboard = [
