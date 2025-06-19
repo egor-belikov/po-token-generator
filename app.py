@@ -22,18 +22,8 @@ async def generate_po_token(data: dict):
         # Создаем объект YouTube
         yt = YouTube(video_url)
         
-        # Получаем информацию о видео
-        try:
-            # Этот вызов автоматически обрабатывает age gate
-            stream = yt.streams.first()
-        except VideoUnavailable:
-            # Для видео с возрастными ограничениями
-            yt.bypass_age_gate()
-        
-        # Извлекаем PoToken
-        player_response = yt.vid_info.get("playerResponse", {})
-        playability_status = player_response.get("playabilityStatus", {})
-        po_token = playability_status.get("poToken", "")
+        yt._vid_info = yt.vid_info
+        po_token = yt._vid_info.get("playerResponse", {}).get("playabilityStatus", {}).get("poToken", "")
         
         if not po_token:
             # Альтернативный способ получения PoToken
