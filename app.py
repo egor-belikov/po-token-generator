@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pytubefix import PoTokenGenerator
+from pytube import YouTube  # Используем стандартный импорт
 import uvicorn
 
 app = FastAPI()
@@ -11,7 +11,8 @@ async def generate_po_token(data: dict):
         if not video_id:
             raise HTTPException(status_code=400, detail="video_id required")
         
-        po_token = PoTokenGenerator.generate(video_id)
+        # Используем встроенный генератор токенов
+        po_token = YouTube(f"https://youtube.com/watch?v={video_id}").po_token
         return {"po_token": po_token}
     
     except Exception as e:
