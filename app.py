@@ -1,0 +1,25 @@
+from fastapi import FastAPI, HTTPException
+from pytubefix import PoTokenGenerator
+import uvicorn
+
+app = FastAPI()
+
+@app.post("/generate-po-token")
+async def generate_po_token(data: dict):
+    try:
+        video_id = data.get("video_id")
+        if not video_id:
+            raise HTTPException(status_code=400, detail="video_id required")
+        
+        po_token = PoTokenGenerator.generate(video_id)
+        return {"po_token": po_token}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health_check():
+    return {"status": "OK"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=5000)
