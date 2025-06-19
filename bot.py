@@ -2,8 +2,6 @@ import re
 import os
 import logging
 import tempfile
-import subprocess
-import json
 from pytubefix import YouTube
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -21,52 +19,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-# Генерация PO_TOKEN с помощью youtube-po-token-generator
-def generate_po_token():
-    try:
-        # Запускаем команду youtube-po-token-generator
-        result = subprocess.run(
-            ["youtube-po-token-generator"],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-        
-        # Проверяем успешность выполнения
-        if result.returncode != 0:
-            error_msg = f"Command failed (code {result.returncode}): {result.stderr}"
-            logger.error(error_msg)
-            return None
-        
-        # Парсим JSON вывод
-        try:
-            token_data = json.loads(result.stdout)
-            po_token = token_data.get('poToken')
-            if po_token:
-                logger.info(f"Generated PO_TOKEN: {po_token[:10]}...")
-                return po_token
-            else:
-                logger.error("PO_TOKEN not found in output")
-                return None
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON output: {result.stdout}")
-            return None
-            
-    except subprocess.TimeoutExpired:
-        logger.error("PO_TOKEN generation timed out")
-        return None
-    except Exception as e:
-        logger.error(f"Error generating PO_TOKEN: {str(e)}")
-        return None
-
-# Инициализация PO_TOKEN
-PO_TOKEN = generate_po_token()
-if PO_TOKEN:
-    YouTube._po_token = PO_TOKEN
-    logger.info("PO_TOKEN successfully set")
-else:
-    logger.warning("Failed to generate PO_TOKEN. Continuing without it. Some videos might not work.")
 
 # Обработчик ссылок YouTube
 def normalize_youtube_url(url: str) -> str:
@@ -106,7 +58,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
-        yt = YouTube(normalized_url, 'WEB')
+        # pytubefix автоматически сгенерирует PO_TOKEN при наличии Node.js
+        yt = YouTube(normalized_url)
         title = yt.title
         
         keyboard = [
@@ -135,7 +88,8 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
     format_type, url = data.split('|', 1)
     
     try:
-        yt = YouTube(url)
+        # pytubefix автоматически использует сгенерированный PO_TOKEN
+        yt = YouTube(url, 'WEB')
         title = yt.title
         
         await query.edit_message_text(f"⏳ Скачиваю {format_type}...")
@@ -146,18 +100,17 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
                 stream = yt.streams.filter(
                     progressive=True,
                     file_extension='mp4'
-                ).order_by('resolution').desc().first()
-                if not stream:
-                    raise Exception("No suitable video stream found")
+                ).get_highest_resolution()
                 filename = f"{yt.video_id}.mp4"
             else:
                 stream = yt.streams.filter(
                     only_audio=True
-                ).order_by('abr').desc().first()
-                if not stream:
-                    raise Exception("No suitable audio stream found")
+                ).get_audio_only()
                 filename = f"{yt.video_id}.mp3"
             
+            if not stream:
+                raise Exception("Поток не найден")
+                
             filepath = os.path.join(tmp_dir, filename)
             stream.download(output_path=tmp_dir, filename=filename)
             filesize = os.path.getsize(filepath) / (1024 * 1024)  # Размер в MB
@@ -184,7 +137,7 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
                     audio=open(filepath, 'rb'),
                     caption=f"🎵 {title}",
                     title=title[:64],
-                    performer=yt.author[:64] if yt.author else "Unknown",
+                    performer=yt.author[:64] if yt.author else "YouTube",
                     read_timeout=300,
                     write_timeout=300,
                     connect_timeout=300

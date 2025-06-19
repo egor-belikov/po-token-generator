@@ -30,9 +30,6 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     --no-install-recommends
 
-# Установка youtube-po-token-generator
-RUN npm install -g youtube-po-token-generator
-
 WORKDIR /app
 
 # Копируем Python зависимости
@@ -44,6 +41,5 @@ COPY bot.py .
 
 # Настройка окружения
 ENV PYTHONUNBUFFERED=1
-ENV TELEGRAM_BOT_TOKEN="your_bot_token_here"
 
 CMD ["python", "bot.py"]
