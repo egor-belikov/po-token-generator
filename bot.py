@@ -89,7 +89,7 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
     
     try:
         # pytubefix автоматически использует сгенерированный PO_TOKEN
-        yt = YouTube(url, 'WEB')
+        yt = YouTube(url)
         title = yt.title
         
         await query.edit_message_text(f"⏳ Скачиваю {format_type}...")
