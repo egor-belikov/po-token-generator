@@ -2,8 +2,9 @@ import re
 import os
 import logging
 import tempfile
+import subprocess
+import json
 from pytubefix import YouTube
-from youtube_po_token_generator import generate_po_token
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -21,14 +22,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Генерация PO_TOKEN с помощью youtube-po-token-generator
+def generate_po_token():
+    try:
+        # Запускаем команду youtube-po-token-generator
+        result = subprocess.run(
+            ["youtube-po-token-generator"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        # Проверяем успешность выполнения
+        if result.returncode != 0:
+            error_msg = f"Command failed (code {result.returncode}): {result.stderr}"
+            logger.error(error_msg)
+            return None
+        
+        # Парсим JSON вывод
+        try:
+            token_data = json.loads(result.stdout)
+            po_token = token_data.get('poToken')
+            if po_token:
+                logger.info(f"Generated PO_TOKEN: {po_token[:10]}...")
+                return po_token
+            else:
+                logger.error("PO_TOKEN not found in output")
+                return None
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON output: {result.stdout}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        logger.error("PO_TOKEN generation timed out")
+        return None
+    except Exception as e:
+        logger.error(f"Error generating PO_TOKEN: {str(e)}")
+        return None
+
 # Инициализация PO_TOKEN
-try:
-    PO_TOKEN = generate_po_token()
-    logger.info(f"Successfully generated PO_TOKEN: {PO_TOKEN[:10]}...")
+PO_TOKEN = generate_po_token()
+if PO_TOKEN:
     YouTube._po_token = PO_TOKEN
-except Exception as e:
-    logger.error(f"PO_TOKEN generation failed: {str(e)}")
-    PO_TOKEN = None
+    logger.info("PO_TOKEN successfully set")
+else:
+    logger.warning("Failed to generate PO_TOKEN. Continuing without it. Some videos might not work.")
 
 # Обработчик ссылок YouTube
 def normalize_youtube_url(url: str) -> str:
@@ -108,12 +146,16 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
                 stream = yt.streams.filter(
                     progressive=True,
                     file_extension='mp4'
-                ).get_highest_resolution()
+                ).order_by('resolution').desc().first()
+                if not stream:
+                    raise Exception("No suitable video stream found")
                 filename = f"{yt.video_id}.mp4"
             else:
                 stream = yt.streams.filter(
                     only_audio=True
-                ).get_audio_only()
+                ).order_by('abr').desc().first()
+                if not stream:
+                    raise Exception("No suitable audio stream found")
                 filename = f"{yt.video_id}.mp3"
             
             filepath = os.path.join(tmp_dir, filename)
@@ -142,7 +184,7 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
                     audio=open(filepath, 'rb'),
                     caption=f"🎵 {title}",
                     title=title[:64],
-                    performer=yt.author[:64],
+                    performer=yt.author[:64] if yt.author else "Unknown",
                     read_timeout=300,
                     write_timeout=300,
                     connect_timeout=300

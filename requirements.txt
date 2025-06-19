@@ -1,4 +1,3 @@
 pytubefix==9.2.0
 python-telegram-bot==20.3
-youtube-po-token-generator
 requests
