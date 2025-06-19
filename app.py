@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException
-from pytube import YouTube  # Используем стандартный импорт
+from pytube import YouTube
+from pytube.extract import video_id
+from pytube.request import create_po_token
 import uvicorn
 
 app = FastAPI()
@@ -7,12 +9,16 @@ app = FastAPI()
 @app.post("/generate-po-token")
 async def generate_po_token(data: dict):
     try:
-        video_id = data.get("video_id")
-        if not video_id:
-            raise HTTPException(status_code=400, detail="video_id required")
+        video_url = data.get("video_url")
+        if not video_url:
+            raise HTTPException(status_code=400, detail="video_url required")
         
-        # Используем встроенный генератор токенов
-        po_token = YouTube(f"https://youtube.com/watch?v={video_id}").po_token
+        # Извлекаем ID видео из URL
+        vid = video_id(video_url)
+        
+        # Создаем PoToken
+        po_token = create_po_token(vid)
+        
         return {"po_token": po_token}
     
     except Exception as e:
