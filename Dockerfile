@@ -4,6 +4,7 @@ FROM node:20-slim AS token-generator
 # Установка системных зависимостей для headless Chrome
 RUN apt-get update && apt-get install -y \
     git \
+    ca-certificates \  # Установка корневых сертификатов
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -25,8 +26,14 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     --no-install-recommends
 
-# Клонирование репозитория
-RUN git clone https://github.com/YunzheZJU/youtube-po-token-generator.git /youtube-po-token-generator
+# Обновление сертификатов
+RUN update-ca-certificates
+
+# Клонирование репозитория с временным отключением проверки SSL
+RUN git config --global http.sslVerify false && \
+    git clone https://github.com/YunzheZJU/youtube-po-token-generator.git /youtube-po-token-generator && \
+    git config --global http.sslVerify true
+
 WORKDIR /youtube-po-token-generator
 
 # Установка зависимостей
@@ -37,9 +44,7 @@ RUN \
     echo "Запуск генерации PO_TOKEN..." && \
     if node examples/one-shot.js > /po_token.json; then \
         echo "✅ PO_TOKEN успешно сгенерирован!"; \
-        echo "Содержимое токена:"; \
-        cat /po_token.json; \
-        echo "Токен сохранен в /po_token.json"; \
+        echo "Первые 10 символов: $(head -c 20 /po_token.json | grep -o '"poToken":"[^"]*' | cut -d'"' -f4 | head -c 10)..."; \
     else \
         echo "❌ Ошибка генерации PO_TOKEN!" >&2; \
         echo "Возможные причины:"; \
@@ -59,6 +64,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     ffmpeg \
     curl \
+    ca-certificates \  # Установка корневых сертификатов
     # Зависимости для headless Chrome
     libnss3 \
     libnspr4 \
@@ -81,6 +87,9 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     --no-install-recommends
 
+# Обновление сертификатов
+RUN update-ca-certificates
+
 # Установка Node.js 20
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs
@@ -94,7 +103,7 @@ RUN \
     if [ -f /app/po_token.json ]; then \
         if grep -q '"poToken"' /app/po_token.json; then \
             echo "✅ Валидный PO_TOKEN обнаружен в /app/po_token.json"; \
-            echo "Первые 10 символов: $(head -c 20 /app/po_token.json | cut -c 1-10)..."; \
+            echo "Первые 10 символов: $(grep -o '"poToken":"[^"]*' /app/po_token.json | cut -d'"' -f4 | head -c 10)..."; \
         elif grep -q '"error"' /app/po_token.json; then \
             echo "⚠️ Предупреждение: Токен не был сгенерирован на этапе сборки"; \
             echo "pytubefix будет генерировать токен автоматически при запуске"; \
