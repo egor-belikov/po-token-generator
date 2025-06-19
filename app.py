@@ -20,7 +20,7 @@ async def generate_po_token(data: dict):
         logger.info(f"Processing video URL: {video_url}")
         
         # Создаем объект YouTube
-        yt = YouTube(video_url)
+        yt = YouTube(video_url, use_po_token=True)
         
         yt._vid_info = yt.vid_info
         po_token = yt._vid_info.get("playerResponse", {}).get("playabilityStatus", {}).get("poToken", "")
